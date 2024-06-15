@@ -1,1 +1,120 @@
+import pandas as pd
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import LocalOutlierFactor
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, mean_absolute_error,r2_score
 
+df = pd.read_csv("/Users/a90530/Downloads/archive/SampleSales.csv")
+print(df.dropna())
+def veri_inceleme(df):
+    print("\nDataframe'in ilk 5 tanesi")
+    print(df.head())
+    print("\n\nDataframe'in columnları")
+    print(df.columns)
+    print("\n\nDataframe hakkında istatistiksel bilgi")
+    print(df.describe())
+    print("/Column Sayısı:")
+    print(df.shape)
+    print("\n\nDataframe hakkındaki bilgileri verir")
+    print(df.info())
+    print("\n\nDataframe'deki boş girilen hücreleri gösterir")
+    print(df.isnull().sum())
+veri_inceleme(df)
+
+df=df[['ItemID',"year","WeekIdentifier","NewBasePrice","SalesQuantity","InboundInventory","ProjectedInventory"]]
+label_encoder = LabelEncoder()
+categorical_columns = ["ItemID"]
+for column in categorical_columns:
+   df[column] = label_encoder.fit_transform(df[column])
+def bak_korelasyon(df):
+    # Korelasyon matrisini hesaplama
+    correlation_matrix = df.corr()
+    highest_correlations = correlation_matrix.unstack().sort_values(ascending=False)
+    highest_correlations = highest_correlations[(highest_correlations > 0) & (highest_correlations < 1)]
+    print("En Yüksek Korelasyonlar:")
+    print(highest_correlations)
+
+    # Korelasyon matrisini görüntüleme
+    print("\nKorelasyon Matrisi:")
+    print(correlation_matrix, "\n\n")
+    correlation_matrix['SalesQuantity'].sort_values(ascending=False)
+
+bak_korelasyon(df)
+
+def bak_outlier(df):
+    # Local Outlier Factor (LOF) modelini oluşturma
+    lof_model = LocalOutlierFactor(n_neighbors=20, contamination=0.1) 
+
+    # LOF modelini veri setine uygulama
+    outlier_scores = lof_model.fit_predict(df)
+
+    # Aykırı değerlerin indekslerini alma
+    outliers_index = df.index[outlier_scores == -1]
+
+    # Aykırı değerleri ortalama değer ile değiştirme
+    df_corrected = df.copy()
+    for column in df.columns:
+        mean_value = df[column].mean()
+        df_corrected.loc[outliers_index, column] = mean_value
+
+    # Aykırı değerleri düzeltilmiş veriyi görüntüleme
+    print("Aykırı Değerleri Düzeltildi:")
+    print(df_corrected.loc[outliers_index])
+    return df_corrected
+bak_outlier(df)
+
+def yap_scaler(df):
+    # Standartlaştırma işlemi için StandardScaler kullanma
+    scaler = StandardScaler()
+
+    num_columns = ["NewBasePrice"]
+    scaled_features = scaler.fit_transform(df[num_columns])
+
+    # Standartlaştırılmış veriyi DataFrame'e dönüştürme
+    df_scaled = pd.DataFrame(scaled_features, columns=['NewBasePrice_scaled'])
+
+    # Standartlaştırılmış veriyi görüntüleme
+    print("Standartlaştırılmış Veri:")
+    print(df_scaled.head())
+    df = pd.concat([df, df_scaled], axis=1)
+    df = df.drop(num_columns, axis=1)
+    return df
+
+yap_scaler(df)
+
+from statsmodels.tsa.arima.model import ARIMA
+import pmdarima as pm
+from statsmodels.tsa.stattools import adfuller
+import warnings
+
+# Tarih sütunlarını datetime tipine dönüştürme
+warnings.filterwarnings('ignore')
+df['year'] = df['year'] + 4
+df['SalesQuantity'] = df['SalesQuantity'] + 15
+df['Date'] = pd.to_datetime(df['year'].astype(str) + '-W' + df['WeekIdentifier'].astype(str) + '-1', format='%G-W%V-%u')
+# Tarih sütununu index olarak ayarlama 
+df.set_index('Date', inplace=True)
+
+# Her ürün için ayrı modelleme 
+def forecast_Stock():
+    item_id = int(input("Bir stok kodu giriniz:  "))
+    prediction_date = input("YYYY-AA-GG olarak tarihi giriniz:  ")
+    product_df = df[df['ItemID'] == item_id]
+    desired_date = pd.to_datetime(prediction_date)
+
+
+    last_date = df.index[-1] 
+    steps_to_desired_date = (desired_date - last_date).days
+    # Seçilen ürün için ARIMA modeli oluşturma
+    model = ARIMA(product_df['SalesQuantity'], order=(5, 1, 0))  
+    model_fit = model.fit()
+
+    # Tahmin yapma
+    forecast_date = pd.to_datetime(prediction_date)
+    forecast = model_fit.forecast(steps=steps_to_desired_date)  
+    exact_day_prediction = forecast[-1]  
+    print(f"{prediction_date} tarihinde {item_id} stok kodlu ürününün optimum stok sayısı {round(exact_day_prediction)}'dir. ")
+
+forecast_Stock()
